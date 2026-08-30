@@ -28,12 +28,28 @@ void launch_col_sparse_matvec(
 // W:           [hidden_dim x intermediate_dim], row-major, fp16  (down_proj weights)
 // sparse_x:    [active_count], values at active neuron positions
 // active_rows: [active_count], row indices in [0, intermediate_dim)
-// y:           [hidden_dim], output accumulation buffer (must be zeroed before call)
+// y:           [hidden_dim], output (fp16)
+// scratch_fp32: caller-allocated fp32 buffer of length hidden_dim, already zeroed.
+//               Passing a persistent scratch avoids a cudaMallocAsync in the hot path.
 void launch_row_sparse_matvec(
     const __half* W,            // [hidden_dim x intermediate_dim]
     const __half* sparse_x,     // [active_count]
     const int*    active_rows,  // [active_count]
     __half*       y,            // [hidden_dim]
+    int           hidden_dim,
+    int           intermediate_dim,
+    int           active_count,
+    cudaStream_t  stream = nullptr
+);
+
+// Variant accepting a pre-allocated, pre-zeroed fp32 accumulation buffer.
+// Eliminates cudaMallocAsync overhead in the inference hot path.
+void launch_row_sparse_matvec_with_scratch(
+    const __half* W,
+    const __half* sparse_x,
+    const int*    active_rows,
+    __half*       y,
+    float*        scratch_fp32,  // [hidden_dim], must be zeroed by caller
     int           hidden_dim,
     int           intermediate_dim,
     int           active_count,

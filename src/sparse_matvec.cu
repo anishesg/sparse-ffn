@@ -103,10 +103,6 @@ __global__ void fp32_to_fp16(const float* __restrict__ src, __half* __restrict__
     if (i < n) dst[i] = __float2half(src[i]);
 }
 
-// We need a persistent fp32 accumulation buffer; caller provides y as fp16.
-// We manage a temporary fp32 buffer internally via cudaMallocAsync if available,
-// but for simplicity we just accept a pre-zeroed fp32 scratch via launch parameters.
-// Expose a simpler interface that takes fp32 scratch.
 void launch_row_sparse_matvec(
     const __half* W,
     const __half* sparse_x,
@@ -119,7 +115,6 @@ void launch_row_sparse_matvec(
 {
     if (active_count == 0) return;
 
-    // Allocate fp32 accumulation buffer
     float* y_fp32 = nullptr;
     cudaMallocAsync(&y_fp32, hidden_dim * sizeof(float), stream);
     cudaMemsetAsync(y_fp32, 0, hidden_dim * sizeof(float), stream);
@@ -133,4 +128,28 @@ void launch_row_sparse_matvec(
     fp32_to_fp16<<<cvt_grid, 256, 0, stream>>>(y_fp32, y, hidden_dim);
 
     cudaFreeAsync(y_fp32, stream);
+}
+
+void launch_row_sparse_matvec_with_scratch(
+    const __half* W,
+    const __half* sparse_x,
+    const int*    active_rows,
+    __half*       y,
+    float*        scratch_fp32,
+    int           hidden_dim,
+    int           intermediate_dim,
+    int           active_count,
+    cudaStream_t  stream)
+{
+    if (active_count == 0) return;
+
+    cudaMemsetAsync(scratch_fp32, 0, hidden_dim * sizeof(float), stream);
+
+    constexpr int BLOCK_SIZE = 256;
+    row_sparse_matvec_kernel<BLOCK_SIZE>
+        <<<active_count, BLOCK_SIZE, 0, stream>>>(
+            W, sparse_x, active_rows, scratch_fp32, hidden_dim, intermediate_dim, active_count);
+
+    const int cvt_grid = (hidden_dim + 255) / 256;
+    fp32_to_fp16<<<cvt_grid, 256, 0, stream>>>(scratch_fp32, y, hidden_dim);
 }
