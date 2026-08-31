@@ -24,6 +24,7 @@ add_library(sparse_ffn STATIC
   src/sparse_matvec.cu
   src/dense_ffn.cu
   src/sparse_ffn.cu
+  src/sparse_ffn_batched.cu
 )
 
 set_target_properties(sparse_ffn PROPERTIES
